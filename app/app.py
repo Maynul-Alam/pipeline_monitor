@@ -1,6 +1,6 @@
 """
 app/app.py
-Streamlit web application for pipeline anomaly detection – cloud-ready, no CSV parsing errors.
+Streamlit web application for pipeline anomaly detection – final cloud-ready version.
 """
 import sys
 import os
@@ -20,7 +20,6 @@ from src.detect import get_threshold, detect_anomalies
 # -------------------- CONFIGURATION --------------------
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "pipeline_model.h5")
 SCALER_PATH = os.path.join(PROJECT_ROOT, "models", "scaler.save")
-DATA_PATH = os.path.join(PROJECT_ROOT, "data", "raw", "pipeline_data.csv")
 FEATURES = ['pressure', 'temperature', 'flow_rate', 'volume_rate']
 TIMESTEPS = 24
 THRESHOLD_MULTIPLIER = 3
@@ -30,9 +29,10 @@ st.set_page_config(page_title="Pipeline Leak Detector", layout="wide")
 st.title("🔧 Natural Gas Pipeline Anomaly Detection")
 st.markdown("Upload your sensor data or use the default model to detect leaks/degradation.")
 
-# -------------------- LOAD MODEL (with error capture) --------------------
+# -------------------- LOAD MODEL --------------------
 @st.cache_resource
 def load_default_artifacts():
+    """Load model and scaler; raise exceptions if anything fails."""
     try:
         model, scaler = load_model_and_scaler(MODEL_PATH, SCALER_PATH)
         return model, scaler
@@ -65,13 +65,11 @@ def generate_synthetic_data():
     return df
 
 def load_data():
-    """
-    Load data from CSV if exists, otherwise generate synthetic data.
-    Returns: DataFrame with timestamp and feature columns.
-    """
-    if os.path.exists(DATA_PATH):
+    """Load data from CSV if exists, otherwise generate synthetic data."""
+    data_path = os.path.join(PROJECT_ROOT, "data", "raw", "pipeline_data.csv")
+    if os.path.exists(data_path):
         try:
-            df = pd.read_csv(DATA_PATH, parse_dates=['timestamp'])
+            df = pd.read_csv(data_path, parse_dates=['timestamp'])
             return df
         except Exception as e:
             st.warning(f"Could not read CSV: {e}. Generating synthetic data instead.")
@@ -82,7 +80,13 @@ def load_data():
 
 # -------------------- MAIN APP FLOW --------------------
 def main():
-    # 1. Load model
+    # 1. Check if model exists first
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"❌ Model not found at: {MODEL_PATH}")
+        st.info("Please run `python main.py` locally to train the model, then commit the `models/` folder to GitHub.")
+        st.stop()
+
+    # 2. Load model
     try:
         model, scaler = load_default_artifacts()
         st.success("✅ Model loaded successfully!")
@@ -90,9 +94,9 @@ def main():
         st.error(f"❌ Model loading failed: {e}")
         st.stop()
 
-    # 2. Data input
+    # 3. Data input
     st.sidebar.header("Data Input")
-    option = st.sidebar.radio("Choose data source:", ("Use default CSV / Synthetic", "Upload your own CSV"))
+    option = st.sidebar.radio("Choose data source:", ("Use default data", "Upload your own CSV"))
 
     if option == "Upload your own CSV":
         uploaded_file = st.sidebar.file_uploader("Upload CSV with timestamp and feature columns", type=["csv"])
@@ -107,16 +111,15 @@ def main():
             st.sidebar.info("Please upload a CSV file.")
             st.stop()
     else:
-        # Load default data (CSV or synthetic)
         df = load_data()
         st.sidebar.success(f"Data loaded: {df.shape[0]} rows")
 
-    # 3. Data preview
+    # 4. Data preview
     st.subheader("📊 Data Preview")
     st.write(f"Shape: {df.shape}")
     st.dataframe(df.head(10))
 
-    # 4. Detection button
+    # 5. Detection button
     if st.button("🚨 Run Anomaly Detection"):
         with st.spinner("Processing data and detecting anomalies..."):
             try:
