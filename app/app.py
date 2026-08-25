@@ -1,6 +1,6 @@
 """
 app/app.py
-Pipeline Leak Simulator – Full features + auto‑leak after delay.
+Pipeline Leak Simulator – Full features + auto‑leak with session_state.
 """
 import streamlit as st
 import numpy as np
@@ -69,6 +69,24 @@ if 'current_idx' not in st.session_state:
     st.session_state.current_idx = 0
 if 'leak_started' not in st.session_state:
     st.session_state.leak_started = False
+
+# Store parameters in session state for global access
+if 'pressure_setpoint' not in st.session_state:
+    st.session_state.pressure_setpoint = 60
+if 'flow_setpoint' not in st.session_state:
+    st.session_state.flow_setpoint = 110
+if 'temperature_setpoint' not in st.session_state:
+    st.session_state.temperature_setpoint = 25
+if 'volume_setpoint' not in st.session_state:
+    st.session_state.volume_setpoint = 80
+if 'valve_position' not in st.session_state:
+    st.session_state.valve_position = 80
+if 'pump_speed' not in st.session_state:
+    st.session_state.pump_speed = 85
+if 'ambient_temp' not in st.session_state:
+    st.session_state.ambient_temp = 20
+if 'noise_level' not in st.session_state:
+    st.session_state.noise_level = 0.8
 if 'leak_start_time' not in st.session_state:
     st.session_state.leak_start_time = 5
 if 'leak_duration' not in st.session_state:
@@ -80,26 +98,22 @@ st.sidebar.header("⚙️ Pipeline Settings")
 with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
-        pressure_setpoint = st.slider("Pressure (psi)", 40, 80, 60, 1)
-        temperature_setpoint = st.slider("Temp (°C)", 15, 40, 25, 1)
+        st.session_state.pressure_setpoint = st.slider("Pressure (psi)", 40, 80, st.session_state.pressure_setpoint, 1)
+        st.session_state.temperature_setpoint = st.slider("Temp (°C)", 15, 40, st.session_state.temperature_setpoint, 1)
     with col2:
-        flow_setpoint = st.slider("Flow (m³/h)", 80, 150, 110, 5)
-        volume_setpoint = st.slider("Volume (m³)", 50, 120, 80, 5)
+        st.session_state.flow_setpoint = st.slider("Flow (m³/h)", 80, 150, st.session_state.flow_setpoint, 5)
+        st.session_state.volume_setpoint = st.slider("Volume (m³)", 50, 120, st.session_state.volume_setpoint, 5)
 
     st.subheader("🌊 System Dynamics")
-    valve_position = st.slider("Valve (%)", 0, 100, 80, 5)
-    pump_speed = st.slider("Pump (%)", 50, 100, 85, 5)
-    ambient_temp = st.slider("Ambient (°C)", -5, 35, 20, 1)
-    noise_level = st.slider("Noise", 0.0, 3.0, 0.8, 0.1)
+    st.session_state.valve_position = st.slider("Valve (%)", 0, 100, st.session_state.valve_position, 5)
+    st.session_state.pump_speed = st.slider("Pump (%)", 50, 100, st.session_state.pump_speed, 5)
+    st.session_state.ambient_temp = st.slider("Ambient (°C)", -5, 35, st.session_state.ambient_temp, 1)
+    st.session_state.noise_level = st.slider("Noise", 0.0, 3.0, st.session_state.noise_level, 0.1)
 
     st.markdown("---")
     st.subheader("💧 Leak Parameters")
-    leak_start_time = st.slider("Leak starts after (s)", 1, 30, 5, 1)
-    leak_duration = st.slider("Leak duration (s)", 5, 100, 60, 5)
-
-    # Store leak params in session state for use in detection loop
-    st.session_state.leak_start_time = leak_start_time
-    st.session_state.leak_duration = leak_duration
+    st.session_state.leak_start_time = st.slider("Leak starts after (s)", 1, 30, st.session_state.leak_start_time, 1)
+    st.session_state.leak_duration = st.slider("Leak duration (s)", 5, 100, st.session_state.leak_duration, 5)
 
     st.markdown("---")
     if st.button("▶️ Start Simulation", type="primary"):
@@ -107,11 +121,18 @@ with st.sidebar:
         st.session_state.sim_time = 0.0
         st.session_state.detection_log = []
         st.session_state.leak_started = False
-        # Generate fresh data using current sidebar values
+        # Generate fresh data using current session state values
         t, p, f, temp, v = generate_simulation_data(
-            pressure_setpoint, flow_setpoint, temperature_setpoint, volume_setpoint,
-            valve_position, pump_speed, ambient_temp, noise_level,
-            leak_start_time, leak_duration
+            st.session_state.pressure_setpoint,
+            st.session_state.flow_setpoint,
+            st.session_state.temperature_setpoint,
+            st.session_state.volume_setpoint,
+            st.session_state.valve_position,
+            st.session_state.pump_speed,
+            st.session_state.ambient_temp,
+            st.session_state.noise_level,
+            st.session_state.leak_start_time,
+            st.session_state.leak_duration
         )
         st.session_state.sim_data = (t, p, f, temp, v)
         st.session_state.current_idx = 0
@@ -241,14 +262,15 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
     if current_time >= leak_start:
         st.session_state.leak_started = True
         reasons, detected, severity = detect_at_index(p, f, temp, idx,
-                                                      pressure_setpoint, flow_setpoint,
-                                                      temperature_setpoint)
+                                                      st.session_state.pressure_setpoint,
+                                                      st.session_state.flow_setpoint,
+                                                      st.session_state.temperature_setpoint)
         if detected:
             log_entry = {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'time_sec': f"{current_time:.1f}",
-                'pressure_drop': f"{pressure_setpoint - curr_p:.2f}",
-                'flow_drop': f"{flow_setpoint - curr_f:.2f}",
+                'pressure_drop': f"{st.session_state.pressure_setpoint - curr_p:.2f}",
+                'flow_drop': f"{st.session_state.flow_setpoint - curr_f:.2f}",
                 'severity': severity,
                 'reasons': '; '.join(reasons)
             }
@@ -262,25 +284,25 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
     # ---- Plot ----
     fig, axes = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
     axes[0].plot(t, p, color='blue', linewidth=1, alpha=0.6)
-    axes[0].axhline(y=pressure_setpoint, color='blue', linestyle='--', alpha=0.4)
+    axes[0].axhline(y=st.session_state.pressure_setpoint, color='blue', linestyle='--', alpha=0.4)
     axes[0].scatter(current_time, curr_p, color='red', s=80, zorder=5)
     axes[0].set_ylabel('Pressure (psi)')
     axes[0].grid(True, alpha=0.3)
 
     axes[1].plot(t, f, color='green', linewidth=1, alpha=0.6)
-    axes[1].axhline(y=flow_setpoint, color='green', linestyle='--', alpha=0.4)
+    axes[1].axhline(y=st.session_state.flow_setpoint, color='green', linestyle='--', alpha=0.4)
     axes[1].scatter(current_time, curr_f, color='red', s=80, zorder=5)
     axes[1].set_ylabel('Flow (m³/h)')
     axes[1].grid(True, alpha=0.3)
 
     axes[2].plot(t, temp, color='orange', linewidth=1, alpha=0.6)
-    axes[2].axhline(y=temperature_setpoint, color='orange', linestyle='--', alpha=0.4)
+    axes[2].axhline(y=st.session_state.temperature_setpoint, color='orange', linestyle='--', alpha=0.4)
     axes[2].scatter(current_time, curr_t, color='red', s=80, zorder=5)
     axes[2].set_ylabel('Temp (°C)')
     axes[2].grid(True, alpha=0.3)
 
     axes[3].plot(t, v, color='purple', linewidth=1, alpha=0.6)
-    axes[3].axhline(y=volume_setpoint, color='purple', linestyle='--', alpha=0.4)
+    axes[3].axhline(y=st.session_state.volume_setpoint, color='purple', linestyle='--', alpha=0.4)
     axes[3].scatter(current_time, curr_v, color='red', s=80, zorder=5)
     axes[3].set_xlabel('Time (seconds)')
     axes[3].set_ylabel('Volume (m³)')
@@ -298,9 +320,9 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
 
     # ---- Metrics ----
     col1, col2, col3 = st.columns(3)
-    col1.metric("Pressure", f"{curr_p:.1f} psi", f"{curr_p - pressure_setpoint:.1f}")
-    col2.metric("Flow", f"{curr_f:.1f} m³/h", f"{curr_f - flow_setpoint:.1f}")
-    col3.metric("Temperature", f"{curr_t:.1f} °C", f"{curr_t - temperature_setpoint:.1f}")
+    col1.metric("Pressure", f"{curr_p:.1f} psi", f"{curr_p - st.session_state.pressure_setpoint:.1f}")
+    col2.metric("Flow", f"{curr_f:.1f} m³/h", f"{curr_f - st.session_state.flow_setpoint:.1f}")
+    col3.metric("Temperature", f"{curr_t:.1f} °C", f"{curr_t - st.session_state.temperature_setpoint:.1f}")
 
     # ---- Alert ----
     if detected:
