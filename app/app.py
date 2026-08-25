@@ -1,13 +1,13 @@
 """
 app/app.py
-Pipeline Leak Simulator – Clean working version.
+Pipeline Leak Simulator – Fully working with random anomalies.
 """
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
-import time
+import random
 
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(
@@ -48,39 +48,18 @@ st.markdown("""
         text-align: center !important;
     }
     .custom-alert h4 { color: white !important; margin: 0 !important; }
-    .stProgress > div > div {
-        background-color: #1e88e5 !important;
-        height: 20px !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- SESSION STATE INIT --------------------
-def init_session_state():
-    """Initialize all session state variables with defaults."""
-    defaults = {
-        'sim_running': False,
-        'sim_time': 0.0,
-        'detection_log': [],
-        'sim_data': None,
-        'current_idx': 0,
-        'leak_started': False,
-        'pressure_setpoint': 60,
-        'flow_setpoint': 110,
-        'temperature_setpoint': 25,
-        'volume_setpoint': 80,
-        'valve_position': 80,
-        'pump_speed': 85,
-        'ambient_temp': 20,
-        'noise_level': 0.8,
-        'leak_start_time': 5,
-        'leak_duration': 60
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-init_session_state()
+# -------------------- SESSION STATE --------------------
+if 'detection_log' not in st.session_state:
+    st.session_state.detection_log = []
+if 'anomaly_active' not in st.session_state:
+    st.session_state.anomaly_active = False
+if 'anomaly_type' not in st.session_state:
+    st.session_state.anomaly_type = None
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = datetime.now()
 
 # -------------------- SIDEBAR CONTROLS --------------------
 st.sidebar.header("⚙️ Pipeline Settings")
@@ -88,59 +67,65 @@ st.sidebar.header("⚙️ Pipeline Settings")
 with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
-        st.session_state.pressure_setpoint = st.slider("Pressure (psi)", 40, 80, st.session_state.pressure_setpoint, 1)
-        st.session_state.temperature_setpoint = st.slider("Temp (°C)", 15, 40, st.session_state.temperature_setpoint, 1)
+        pressure_setpoint = st.slider("Pressure (psi)", 40, 80, 60, 1)
+        temperature_setpoint = st.slider("Temp (°C)", 15, 40, 25, 1)
     with col2:
-        st.session_state.flow_setpoint = st.slider("Flow (m³/h)", 80, 150, st.session_state.flow_setpoint, 5)
-        st.session_state.volume_setpoint = st.slider("Volume (m³)", 50, 120, st.session_state.volume_setpoint, 5)
+        flow_setpoint = st.slider("Flow (m³/h)", 80, 150, 110, 5)
+        volume_setpoint = st.slider("Volume (m³)", 50, 120, 80, 5)
 
     st.subheader("🌊 System Dynamics")
-    st.session_state.valve_position = st.slider("Valve (%)", 0, 100, st.session_state.valve_position, 5)
-    st.session_state.pump_speed = st.slider("Pump (%)", 50, 100, st.session_state.pump_speed, 5)
-    st.session_state.ambient_temp = st.slider("Ambient (°C)", -5, 35, st.session_state.ambient_temp, 1)
-    st.session_state.noise_level = st.slider("Noise", 0.0, 3.0, st.session_state.noise_level, 0.1)
+    valve_position = st.slider("Valve (%)", 0, 100, 80, 5)
+    pump_speed = st.slider("Pump (%)", 50, 100, 85, 5)
+    ambient_temp = st.slider("Ambient (°C)", -5, 35, 20, 1)
+    noise_level = st.slider("Noise", 0.0, 3.0, 0.8, 0.1)
 
     st.markdown("---")
-    st.subheader("💧 Leak Parameters")
-    st.session_state.leak_start_time = st.slider("Leak starts after (s)", 1, 30, st.session_state.leak_start_time, 1)
-    st.session_state.leak_duration = st.slider("Leak duration (s)", 5, 100, st.session_state.leak_duration, 5)
+    st.subheader("🎲 Random Anomalies")
+
+    random_enabled = st.checkbox("Enable random anomalies", value=False)
+    if random_enabled:
+        anomaly_interval = st.slider("Interval (s)", 2, 15, 5, 1)
+    else:
+        anomaly_interval = 5
 
     st.markdown("---")
-    if st.button("▶️ Start Simulation", type="primary"):
-        # Reset simulation state
-        st.session_state.sim_running = True
-        st.session_state.sim_time = 0.0
-        st.session_state.detection_log = []
-        st.session_state.leak_started = False
-        # Generate fresh data
-        t, p, f, temp, v = generate_simulation_data(
-            st.session_state.pressure_setpoint,
-            st.session_state.flow_setpoint,
-            st.session_state.temperature_setpoint,
-            st.session_state.volume_setpoint,
-            st.session_state.valve_position,
-            st.session_state.pump_speed,
-            st.session_state.ambient_temp,
-            st.session_state.noise_level,
-            st.session_state.leak_start_time,
-            st.session_state.leak_duration
-        )
-        st.session_state.sim_data = (t, p, f, temp, v)
-        st.session_state.current_idx = 0
-        st.rerun()
+    st.subheader("💥 Manual Injection")
+
+    anomaly_type = st.selectbox(
+        "Type",
+        ["None", "Leak (Pressure Drop)", "Blockage (Flow Drop)",
+         "Pump Failure", "Sensor Drift", "Pressure Surge", "Temperature Spike"]
+    )
+
+    if st.button("Inject Anomaly", type="primary"):
+        if anomaly_type != "None":
+            st.session_state.anomaly_active = True
+            st.session_state.anomaly_type = anomaly_type
+            st.success(f"✅ {anomaly_type} injected!")
 
     if st.button("🔄 Reset System"):
-        st.session_state.sim_running = False
-        st.session_state.sim_time = 0.0
-        st.session_state.sim_data = None
-        st.session_state.current_idx = 0
+        st.session_state.anomaly_active = False
+        st.session_state.anomaly_type = None
         st.session_state.detection_log = []
-        st.session_state.leak_started = False
-        st.rerun()
+        st.success("🔄 System reset!")
 
-# -------------------- SIMULATION ENGINE --------------------
-def generate_simulation_data(p_set, f_set, t_set, v_set, valve, pump, ambient, noise,
-                             leak_start, leak_duration):
+# -------------------- RANDOM ANOMALY LOGIC --------------------
+def check_random_anomaly(random_enabled, interval):
+    if not random_enabled:
+        return
+    now = datetime.now()
+    elapsed = (now - st.session_state.last_update).total_seconds()
+    if elapsed > interval:
+        anomaly_types = ["Leak (Pressure Drop)", "Blockage (Flow Drop)",
+                        "Pump Failure", "Sensor Drift", "Pressure Surge", "Temperature Spike"]
+        weights = [0.3, 0.25, 0.15, 0.1, 0.1, 0.1]
+        chosen = random.choices(anomaly_types, weights=weights)[0]
+        st.session_state.anomaly_active = True
+        st.session_state.anomaly_type = chosen
+        st.session_state.last_update = now
+
+# -------------------- SIMULATION --------------------
+def generate_data(p_set, f_set, t_set, v_set, valve, pump, ambient, noise):
     TOTAL_TIME = 120
     N_POINTS = 600
     t = np.linspace(0, TOTAL_TIME, N_POINTS)
@@ -160,19 +145,9 @@ def generate_simulation_data(p_set, f_set, t_set, v_set, valve, pump, ambient, n
     temp += np.random.normal(0, noise * 0.3, N_POINTS)
     volume += np.random.normal(0, noise * 2, N_POINTS)
 
-    # Apply leak
-    leak_start_idx = int((leak_start / TOTAL_TIME) * N_POINTS)
-    leak_end_idx = int(((leak_start + leak_duration) / TOTAL_TIME) * N_POINTS)
-    leak_end_idx = min(leak_end_idx, N_POINTS)
-    for i in range(leak_start_idx, leak_end_idx):
-        progress = (i - leak_start_idx) / (leak_end_idx - leak_start_idx + 1)
-        pressure[i] -= 15 + 5 * progress
-        flow[i] -= 20 + 10 * progress
-        temp[i] += 3 + 2 * progress
-
     return t, pressure, flow, temp, volume
 
-# -------------------- DETECTION FUNCTIONS --------------------
+# -------------------- DETECTION --------------------
 def compute_severity(p_drop, f_drop, t_rise, z_p, z_f):
     score = 0
     if p_drop > 0: score += min(40, (p_drop / 20) * 40)
@@ -182,18 +157,20 @@ def compute_severity(p_drop, f_drop, t_rise, z_p, z_f):
     if p_drop > 8 and f_drop > 15: score += 10
     return min(100, int(score))
 
-def detect_at_index(pressure, flow, temp, idx, baseline_p, baseline_f, temp_setpoint):
-    if idx < 10:
+def detect_anomalies(pressure, flow, temp, baseline_p, baseline_f, temp_setpoint):
+    if len(pressure) < 10:
         return [], False, 0
-    start = max(0, idx - 50)
-    recent_p = pressure[start:idx+1]
-    recent_f = flow[start:idx+1]
+
+    idx = -1
     curr_p = pressure[idx]
     curr_f = flow[idx]
     curr_t = temp[idx]
     p_drop = baseline_p - curr_p
     f_drop = baseline_f - curr_f
 
+    # Statistics
+    recent_p = pressure[-50:] if len(pressure) >= 50 else pressure
+    recent_f = flow[-50:] if len(flow) >= 50 else flow
     p_mean, p_std = np.mean(recent_p), np.std(recent_p)
     f_mean, f_std = np.mean(recent_f), np.std(recent_f)
     z_p = abs((curr_p - p_mean) / (p_std + 0.001))
@@ -201,6 +178,7 @@ def detect_at_index(pressure, flow, temp, idx, baseline_p, baseline_f, temp_setp
 
     reasons = []
     detected = False
+
     if p_drop > 12 and f_drop > 20:
         detected = True
         reasons.append("🔴 Large pressure & flow drop (leak)")
@@ -223,146 +201,133 @@ def detect_at_index(pressure, flow, temp, idx, baseline_p, baseline_f, temp_setp
     severity = compute_severity(p_drop, f_drop, curr_t - temp_setpoint, z_p, z_f) if detected else 0
     return reasons, detected, severity
 
-# -------------------- MAIN APP --------------------
+# -------------------- MAIN --------------------
 st.title("🛢️ Pipeline Leak Simulator")
-st.markdown("Adjust settings in the sidebar, then click **Start Simulation** – a leak will occur automatically after the set delay.")
+st.markdown("Adjust settings in the sidebar. Enable **random anomalies** or inject manually to test detection.")
 
-# Display current settings
-col_info1, col_info2, col_info3 = st.columns(3)
-with col_info1:
-    st.info(f"⏱️ Leak starts at: {st.session_state.leak_start_time}s")
-with col_info2:
-    st.info(f"⏱️ Leak duration: {st.session_state.leak_duration}s")
-with col_info3:
-    st.info(f"📊 Noise level: {st.session_state.noise_level}")
+# Check for random anomaly
+check_random_anomaly(random_enabled, anomaly_interval)
 
-# If simulation is running, update
-if st.session_state.sim_running and st.session_state.sim_data is not None:
-    t, p, f, temp, v = st.session_state.sim_data
-    TOTAL_TIME = t[-1]
-    total_steps = 100
-    step_time = TOTAL_TIME / total_steps
+# Generate data
+t, pressure, flow, temp, volume = generate_data(
+    pressure_setpoint, flow_setpoint, temperature_setpoint, volume_setpoint,
+    valve_position, pump_speed, ambient_temp, noise_level
+)
 
-    current_time = st.session_state.sim_time
-    if current_time >= TOTAL_TIME:
-        st.session_state.sim_running = False
-        st.success("✅ Simulation finished.")
-        st.rerun()
-        st.stop()
+# Apply anomaly if active
+if st.session_state.anomaly_active and st.session_state.anomaly_type is not None:
+    anomaly_idx = int(0.5 * len(t))
+    anomaly_type = st.session_state.anomaly_type
+    if "Leak" in anomaly_type:
+        pressure[anomaly_idx:] -= 15
+        flow[anomaly_idx:] -= 20
+        temp[anomaly_idx:] += 3
+    elif "Blockage" in anomaly_type:
+        flow[anomaly_idx:] -= 40
+        pressure[anomaly_idx:] += 10
+        temp[anomaly_idx:] += 5
+    elif "Pump Failure" in anomaly_type:
+        pressure[anomaly_idx:] -= 30
+        flow[anomaly_idx:] -= 50
+        temp[anomaly_idx:] += 8
+    elif "Sensor Drift" in anomaly_type:
+        drift = np.linspace(0, 10, len(t) - anomaly_idx)
+        pressure[anomaly_idx:] += drift
+        flow[anomaly_idx:] += drift * 0.8
+    elif "Pressure Surge" in anomaly_type:
+        surge = 25 * np.sin(2 * np.pi * t[:100] / 5)
+        pressure[anomaly_idx:anomaly_idx+100] += surge
+        flow[anomaly_idx:anomaly_idx+100] += 15
+    elif "Temperature Spike" in anomaly_type:
+        spike = 15 * np.exp(-(t[:30] / 5))
+        temp[anomaly_idx:anomaly_idx+30] += spike
 
-    idx = np.argmin(np.abs(t - current_time))
-    st.session_state.current_idx = idx
-    curr_p = p[idx]
-    curr_f = f[idx]
-    curr_t = temp[idx]
-    curr_v = v[idx]
+# Detection
+reasons, detected, severity = detect_anomalies(
+    pressure, flow, temp, pressure_setpoint, flow_setpoint, temperature_setpoint
+)
 
-    leak_start = st.session_state.leak_start_time
-    if current_time >= leak_start:
-        st.session_state.leak_started = True
-        reasons, detected, severity = detect_at_index(
-            p, f, temp, idx,
-            st.session_state.pressure_setpoint,
-            st.session_state.flow_setpoint,
-            st.session_state.temperature_setpoint
-        )
-        if detected:
-            log_entry = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'time_sec': f"{current_time:.1f}",
-                'pressure_drop': f"{st.session_state.pressure_setpoint - curr_p:.2f}",
-                'flow_drop': f"{st.session_state.flow_setpoint - curr_f:.2f}",
-                'severity': severity,
-                'reasons': '; '.join(reasons)
-            }
-            if not st.session_state.detection_log or st.session_state.detection_log[-1] != log_entry:
-                st.session_state.detection_log.append(log_entry)
-    else:
-        detected = False
-        reasons = []
-        severity = 0
+if detected and st.session_state.anomaly_active:
+    log_entry = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'anomaly_type': st.session_state.anomaly_type,
+        'severity': severity,
+        'reasons': '; '.join(reasons)
+    }
+    if not st.session_state.detection_log or st.session_state.detection_log[-1] != log_entry:
+        st.session_state.detection_log.append(log_entry)
+    # Reset anomaly after logging
+    st.session_state.anomaly_active = False
 
-    # ---- Plot ----
-    fig, axes = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
-    axes[0].plot(t, p, color='blue', linewidth=1, alpha=0.6)
-    axes[0].axhline(y=st.session_state.pressure_setpoint, color='blue', linestyle='--', alpha=0.4)
-    axes[0].scatter(current_time, curr_p, color='red', s=80, zorder=5)
-    axes[0].set_ylabel('Pressure (psi)')
-    axes[0].grid(True, alpha=0.3)
+# ---- Plot ----
+fig, axes = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
+axes[0].plot(t, pressure, color='blue', linewidth=2)
+axes[0].axhline(y=pressure_setpoint, color='blue', linestyle='--', alpha=0.5)
+axes[0].set_ylabel('Pressure (psi)')
+axes[0].grid(True, alpha=0.3)
 
-    axes[1].plot(t, f, color='green', linewidth=1, alpha=0.6)
-    axes[1].axhline(y=st.session_state.flow_setpoint, color='green', linestyle='--', alpha=0.4)
-    axes[1].scatter(current_time, curr_f, color='red', s=80, zorder=5)
-    axes[1].set_ylabel('Flow (m³/h)')
-    axes[1].grid(True, alpha=0.3)
+axes[1].plot(t, flow, color='green', linewidth=2)
+axes[1].axhline(y=flow_setpoint, color='green', linestyle='--', alpha=0.5)
+axes[1].set_ylabel('Flow (m³/h)')
+axes[1].grid(True, alpha=0.3)
 
-    axes[2].plot(t, temp, color='orange', linewidth=1, alpha=0.6)
-    axes[2].axhline(y=st.session_state.temperature_setpoint, color='orange', linestyle='--', alpha=0.4)
-    axes[2].scatter(current_time, curr_t, color='red', s=80, zorder=5)
-    axes[2].set_ylabel('Temp (°C)')
-    axes[2].grid(True, alpha=0.3)
+axes[2].plot(t, temp, color='orange', linewidth=2)
+axes[2].axhline(y=temperature_setpoint, color='orange', linestyle='--', alpha=0.5)
+axes[2].set_ylabel('Temp (°C)')
+axes[2].grid(True, alpha=0.3)
 
-    axes[3].plot(t, v, color='purple', linewidth=1, alpha=0.6)
-    axes[3].axhline(y=st.session_state.volume_setpoint, color='purple', linestyle='--', alpha=0.4)
-    axes[3].scatter(current_time, curr_v, color='red', s=80, zorder=5)
-    axes[3].set_xlabel('Time (seconds)')
-    axes[3].set_ylabel('Volume (m³)')
-    axes[3].grid(True, alpha=0.3)
+axes[3].plot(t, volume, color='purple', linewidth=2)
+axes[3].axhline(y=volume_setpoint, color='purple', linestyle='--', alpha=0.5)
+axes[3].set_xlabel('Time (seconds)')
+axes[3].set_ylabel('Volume (m³)')
+axes[3].grid(True, alpha=0.3)
 
-    # Highlight leak period
-    if st.session_state.leak_started:
-        leak_start_idx = np.argmin(np.abs(t - leak_start))
-        for ax in axes:
-            ax.axvspan(t[leak_start_idx], t[-1], alpha=0.15, color='red')
+plt.tight_layout()
+st.pyplot(fig)
+plt.close(fig)
 
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+# ---- Metrics and Alert ----
+col1, col2, col3 = st.columns([2, 1, 1])
 
-    # ---- Metrics ----
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Pressure", f"{curr_p:.1f} psi", f"{curr_p - st.session_state.pressure_setpoint:.1f}")
-    col2.metric("Flow", f"{curr_f:.1f} m³/h", f"{curr_f - st.session_state.flow_setpoint:.1f}")
-    col3.metric("Temperature", f"{curr_t:.1f} °C", f"{curr_t - st.session_state.temperature_setpoint:.1f}")
-
-    # ---- Alert ----
+with col1:
+    st.subheader("🔍 Real-time Monitoring")
     if detected:
         st.markdown(f"""
         <div class="custom-alert" style="background-color:#b71c1c;color:white;padding:15px;border-radius:10px;border:3px solid #ff1744;">
             <h4 style="color:white;margin:0;">🚨 ANOMALY DETECTED!</h4>
             <p style="margin:5px 0;">Severity: <strong>{severity}/100</strong></p>
+            <p style="margin:5px 0;">Type: {st.session_state.anomaly_type}</p>
             <p style="margin:5px 0;">Reasons: {'; '.join(reasons)}</p>
         </div>
         """, unsafe_allow_html=True)
     else:
-        if st.session_state.leak_started:
-            st.warning("⚠️ Leak active – monitoring...")
+        if random_enabled:
+            st.success("✅ System normal – random anomalies active")
         else:
-            st.success("✅ System normal.")
+            st.success("✅ System normal")
 
-    # ---- Progress ----
-    progress = current_time / TOTAL_TIME
-    st.progress(min(1.0, progress))
+with col2:
+    st.subheader("📊 Live Metrics")
+    st.metric("Pressure", f"{pressure[-1]:.1f} psi", f"{pressure[-1] - pressure_setpoint:.1f}")
+    st.metric("Flow", f"{flow[-1]:.1f} m³/h", f"{flow[-1] - flow_setpoint:.1f}")
 
-    # ---- Detection Log ----
+with col3:
+    st.subheader("📈 Status")
+    if detected:
+        st.error("🚨 Anomaly")
+    elif st.session_state.anomaly_active:
+        st.warning("⚠️ Anomaly active")
+    else:
+        st.success("✅ Normal")
+
+# ---- Detection Log ----
+with st.expander("📋 Detection Log"):
     if st.session_state.detection_log:
-        st.subheader("📋 Detection Log")
-        st.dataframe(pd.DataFrame(st.session_state.detection_log), use_container_width=True)
-
-    # ---- Advance time ----
-    st.session_state.sim_time += step_time
-    time.sleep(0.3)
-    st.rerun()
-
-else:
-    # Not running
-    if st.session_state.detection_log:
-        st.subheader("📋 Detection Log")
         st.dataframe(pd.DataFrame(st.session_state.detection_log), use_container_width=True)
     else:
-        st.info("Configure settings in the sidebar and click 'Start Simulation'.")
+        st.write("No anomalies detected yet.")
 
-# Export button
+# ---- Export ----
 if st.session_state.detection_log:
     if st.button("📤 Export Log (CSV)"):
         df_exp = pd.DataFrame(st.session_state.detection_log)
@@ -373,3 +338,14 @@ if st.session_state.detection_log:
             file_name=f"leak_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime='text/csv'
         )
+
+# ---- Raw Data ----
+with st.expander("📊 Raw Data"):
+    df = pd.DataFrame({
+        'Time (s)': t.round(2),
+        'Pressure': pressure.round(2),
+        'Flow': flow.round(2),
+        'Temp': temp.round(2),
+        'Volume': volume.round(2)
+    })
+    st.dataframe(df, use_container_width=True)
