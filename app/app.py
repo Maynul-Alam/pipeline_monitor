@@ -1,6 +1,6 @@
 """
 app/app.py
-Streamlit web application for pipeline anomaly detection – NO training on cloud.
+Streamlit web application with automatic model training on first run.
 """
 import sys
 import os
@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import subprocess
 
 # -------------------- PATH SETUP --------------------
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,41 @@ THRESHOLD_MULTIPLIER = 3
 st.set_page_config(page_title="Pipeline Leak Detector", layout="wide")
 st.title("🔧 Natural Gas Pipeline Anomaly Detection")
 st.markdown("Upload your sensor data or use the default model to detect leaks/degradation.")
+
+# -------------------- ENSURE MODEL EXISTS --------------------
+def ensure_model_exists():
+    """If model is missing, train it on the cloud."""
+    if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
+        return True
+    
+    st.warning("⚠️ Model not found. Training on first run (this may take 2-5 minutes)...")
+    
+    try:
+        # Run main.py to train the model
+        result = subprocess.run(
+            [sys.executable, "main.py"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minutes max
+        )
+        if result.returncode != 0:
+            st.error(f"Training failed: {result.stderr}")
+            return False
+        
+        # Check if model was created
+        if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
+            st.success("✅ Model trained successfully!")
+            return True
+        else:
+            st.error("Training completed but model files not found.")
+            return False
+    except subprocess.TimeoutExpired:
+        st.error("Training timed out after 10 minutes.")
+        return False
+    except Exception as e:
+        st.error(f"Unexpected error during training: {e}")
+        return False
 
 # -------------------- LOAD MODEL --------------------
 @st.cache_resource
@@ -74,11 +110,11 @@ def load_data():
 
 # -------------------- MAIN APP FLOW --------------------
 def main():
-    # 1. Check if model exists
-    if not os.path.exists(MODEL_PATH):
-        st.error(f"❌ Model not found at: {MODEL_PATH}")
-        st.info("Please run `python main.py` locally to train the model, then commit the `models/` folder to GitHub.")
-        st.stop()
+    # 1. Ensure model exists (train if missing)
+    with st.spinner("Checking for model..."):
+        if not ensure_model_exists():
+            st.error("❌ Could not load or train the model. Please check logs.")
+            st.stop()
 
     # 2. Load model
     try:
