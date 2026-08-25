@@ -16,29 +16,29 @@ import tensorflow as tf
 import joblib
 from src.data_preprocessing import clean_data, scale_data, create_sequences
 
-# Custom initializer to handle extra arguments in deserialization
+# ------------------------------------------------------------------
+# MONKEY-PATCH: Force GlorotUniform to accept extra arguments
+# This fixes the "unexpected keyword argument 'input_axes'" error.
+# ------------------------------------------------------------------
 from keras.initializers import GlorotUniform
 
-class CustomGlorotUniform(GlorotUniform):
-    """Custom initializer that ignores unexpected 'input_axes' and 'output_axes' arguments."""
-    def __init__(self, seed=None, input_axes=None, output_axes=None, **kwargs):
-        super().__init__(seed=seed, **kwargs)
+_original_glorot_init = GlorotUniform.__init__
 
+def _patched_glorot_init(self, seed=None, input_axes=None, output_axes=None, **kwargs):
+    # Call the original __init__ without the extra arguments
+    _original_glorot_init(self, seed=seed, **kwargs)
+
+GlorotUniform.__init__ = _patched_glorot_init
+
+# ------------------------------------------------------------------
 
 def load_model_and_scaler(model_path, scaler_path):
     """
     Load the trained Keras model (without compiling) and fitted scaler.
-    Uses custom_objects to handle version differences in initializers.
+    The monkey‑patch above ensures initializers load correctly.
     """
-    # Register custom objects
-    custom_objects = {'GlorotUniform': CustomGlorotUniform}
-    
     # Load without compiling to bypass metric deserialization
-    model = tf.keras.models.load_model(
-        model_path,
-        custom_objects=custom_objects,
-        compile=False
-    )
+    model = tf.keras.models.load_model(model_path, compile=False)
     # Recompile with the same loss as during training
     model.compile(optimizer='adam', loss='mse')
     scaler = joblib.load(scaler_path)
