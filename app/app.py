@@ -1,6 +1,6 @@
 """
 app/app.py
-Streamlit web application for pipeline anomaly detection – final cloud-ready version.
+Streamlit web application for pipeline anomaly detection – NO training on cloud.
 """
 import sys
 import os
@@ -32,7 +32,6 @@ st.markdown("Upload your sensor data or use the default model to detect leaks/de
 # -------------------- LOAD MODEL --------------------
 @st.cache_resource
 def load_default_artifacts():
-    """Load model and scaler; raise exceptions if anything fails."""
     try:
         model, scaler = load_model_and_scaler(MODEL_PATH, SCALER_PATH)
         return model, scaler
@@ -41,7 +40,6 @@ def load_default_artifacts():
 
 # -------------------- GENERATE SYNTHETIC DATA (in memory) --------------------
 def generate_synthetic_data():
-    """Generate synthetic pipeline data with anomalies, returns a DataFrame."""
     np.random.seed(42)
     n_hours = 5000
     t = np.linspace(0, 20 * np.pi, n_hours)
@@ -49,7 +47,6 @@ def generate_synthetic_data():
     temperature = 25 + 5 * np.cos(t * 0.8) + np.random.normal(0, 0.5, n_hours)
     flow_rate = 100 + 20 * np.sin(t * 1.2) + np.random.normal(0, 2, n_hours)
     volume_rate = 80 + 15 * np.cos(t * 0.9) + np.random.normal(0, 1.5, n_hours)
-    # Inject anomalies
     anomaly_indices = np.random.choice(n_hours, size=30, replace=False)
     for idx in anomaly_indices:
         pressure[idx] += np.random.uniform(15, 25)
@@ -65,22 +62,19 @@ def generate_synthetic_data():
     return df
 
 def load_data():
-    """Load data from CSV if exists, otherwise generate synthetic data."""
     data_path = os.path.join(PROJECT_ROOT, "data", "raw", "pipeline_data.csv")
     if os.path.exists(data_path):
         try:
             df = pd.read_csv(data_path, parse_dates=['timestamp'])
             return df
-        except Exception as e:
-            st.warning(f"Could not read CSV: {e}. Generating synthetic data instead.")
+        except Exception:
             return generate_synthetic_data()
     else:
-        st.info("No default data found. Generating synthetic dataset for demo...")
         return generate_synthetic_data()
 
 # -------------------- MAIN APP FLOW --------------------
 def main():
-    # 1. Check if model exists first
+    # 1. Check if model exists
     if not os.path.exists(MODEL_PATH):
         st.error(f"❌ Model not found at: {MODEL_PATH}")
         st.info("Please run `python main.py` locally to train the model, then commit the `models/` folder to GitHub.")
@@ -114,56 +108,43 @@ def main():
         df = load_data()
         st.sidebar.success(f"Data loaded: {df.shape[0]} rows")
 
-    # 4. Data preview
     st.subheader("📊 Data Preview")
     st.write(f"Shape: {df.shape}")
     st.dataframe(df.head(10))
 
-    # 5. Detection button
     if st.button("🚨 Run Anomaly Detection"):
-        with st.spinner("Processing data and detecting anomalies..."):
+        with st.spinner("Processing data..."):
             try:
                 X = preprocess_new_data(df, FEATURES, TIMESTEPS, scaler)
                 if len(X) == 0:
-                    st.error(f"Not enough data. Need at least {TIMESTEPS} rows.")
+                    st.error(f"Need at least {TIMESTEPS} rows.")
                     st.stop()
-                
                 errors = get_reconstruction_error(model, X)
                 threshold = get_threshold(errors, multiplier=THRESHOLD_MULTIPLIER)
                 anomalies = detect_anomalies(errors, threshold)
-                
                 n_anomalies = np.sum(anomalies)
                 total = len(errors)
-                anomaly_percent = 100 * n_anomalies / total if total > 0 else 0
-                
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Sequences", total)
-                col2.metric("Anomalies Detected", f"{n_anomalies} ({anomaly_percent:.1f}%)")
+                col2.metric("Anomalies Detected", f"{n_anomalies} ({100*n_anomalies/total:.1f}%)")
                 col3.metric("Threshold", f"{threshold:.6f}")
-                
                 fig, ax = plt.subplots(figsize=(12, 5))
                 ax.plot(errors, label='Reconstruction Error', color='blue', alpha=0.7)
-                ax.axhline(y=threshold, color='red', linestyle='--', linewidth=2, label=f'Threshold')
+                ax.axhline(y=threshold, color='red', linestyle='--', label='Threshold')
                 anomaly_indices = np.where(anomalies)[0]
                 if len(anomaly_indices) > 0:
                     ax.scatter(anomaly_indices, errors[anomalies], color='red', s=30, label='Anomalies')
                 ax.set_xlabel('Sample Index')
                 ax.set_ylabel('MSE')
-                ax.set_title('Reconstruction Error & Anomalies')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
-                
                 if len(anomaly_indices) > 0:
                     st.subheader("⚠️ Anomaly Events")
                     anomaly_times = df['timestamp'].iloc[anomaly_indices + TIMESTEPS]
-                    anomaly_df = pd.DataFrame({
-                        'Timestamp': anomaly_times,
-                        'Error': errors[anomalies]
-                    })
-                    st.dataframe(anomaly_df)
+                    st.dataframe(pd.DataFrame({'Timestamp': anomaly_times, 'Error': errors[anomalies]}))
                 else:
-                    st.success("✅ No anomalies detected in the current dataset.")
+                    st.success("✅ No anomalies detected.")
             except Exception as e:
                 st.exception(e)
 
