@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Model files (uncomment if you choose NOT to include them)
+# models/*.h5
+# models/*.save
+
+# Data files (if large)
+data/raw/*.csv
+data/processed/*
+
+# VS Code
+.vscode/
+
+# Logs
+logs/*.png
