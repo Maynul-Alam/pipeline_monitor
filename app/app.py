@@ -1,6 +1,6 @@
 """
 app/app.py
-Advanced Pipeline Simulator – Mobile‑Friendly UI
+Advanced Pipeline Simulator – Mobile‑Friendly with Fast Random Anomalies
 """
 import streamlit as st
 import numpy as np
@@ -14,53 +14,25 @@ import random
 st.set_page_config(
     page_title="Pipeline Simulator",
     layout="wide",
-    initial_sidebar_state="auto"  # sidebar collapses on mobile
+    initial_sidebar_state="auto"
 )
 
 # -------------------- CUSTOM CSS FOR MOBILE --------------------
 st.markdown("""
 <style>
-    /* Make text and elements scale better on small screens */
     @media (max-width: 768px) {
-        .stApp {
-            padding: 0.5rem !important;
-        }
-        h1 {
-            font-size: 1.8rem !important;
-        }
-        h2, h3 {
-            font-size: 1.2rem !important;
-        }
-        .stMetric label {
-            font-size: 0.8rem !important;
-        }
-        .stMetric .stMetricValue {
-            font-size: 1.2rem !important;
-        }
-        .stButton button {
-            width: 100% !important;
-            padding: 0.5rem !important;
-        }
-        .stSlider {
-            padding: 0.2rem 0 !important;
-        }
-        .stColumns {
-            gap: 0.5rem !important;
-        }
+        .stApp { padding: 0.5rem !important; }
+        h1 { font-size: 1.8rem !important; }
+        h2, h3 { font-size: 1.2rem !important; }
+        .stMetric label { font-size: 0.8rem !important; }
+        .stMetric .stMetricValue { font-size: 1.2rem !important; }
+        .stButton button { width: 100% !important; padding: 0.5rem !important; }
+        .stSlider { padding: 0.2rem 0 !important; }
+        .stColumns { gap: 0.5rem !important; }
     }
-    /* Improve sidebar on mobile */
-    .css-1d391kg {
-        padding-top: 0 !important;
-    }
-    /* Make alert boxes compact */
-    div[data-testid="stAlert"] {
-        padding: 0.5rem !important;
-        font-size: 0.9rem !important;
-    }
-    /* Expander headers smaller */
-    .streamlit-expanderHeader {
-        font-size: 0.9rem !important;
-    }
+    .css-1d391kg { padding-top: 0 !important; }
+    div[data-testid="stAlert"] { padding: 0.5rem !important; font-size: 0.9rem !important; }
+    .streamlit-expanderHeader { font-size: 0.9rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,7 +54,6 @@ if 'anomaly_active' not in st.session_state:
 # -------------------- SIDEBAR CONTROLS --------------------
 st.sidebar.header("⚙️ Pipeline Settings")
 
-# Operating conditions
 with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
@@ -103,7 +74,7 @@ with st.sidebar:
     random_anomaly_enabled = st.checkbox("Enable automatic", value=False)
     st.session_state.random_anomaly_enabled = random_anomaly_enabled
     if random_anomaly_enabled:
-        anomaly_interval = st.slider("Interval (s)", 10, 60, 25, 5)
+        anomaly_interval = st.slider("Interval (s)", 2, 15, 5, 1)  # <-- Changed to 2-15 seconds
 
     st.markdown("---")
     st.subheader("💥 Manual Injection")
@@ -140,10 +111,10 @@ def check_and_inject_random():
         return
     now = datetime.now()
     elapsed = (now - st.session_state.last_random_anomaly_time).total_seconds()
-    interval = st.session_state.get('anomaly_interval', 25)
+    interval = st.session_state.get('anomaly_interval', 5)
     if elapsed > interval:
         anomaly_types = ["Leak (Pressure Drop)", "Blockage (Flow Drop)", 
-                        "Pump Failure (Pressure/Flow Drop)", "Sensor Drift", 
+                        "Pump Failure", "Sensor Drift", 
                         "Pressure Surge", "Temperature Spike"]
         weights = [0.3, 0.25, 0.15, 0.1, 0.1, 0.1]
         chosen = random.choices(anomaly_types, weights=weights)[0]
@@ -185,7 +156,7 @@ def simulate_pipeline(anomaly_active, anomaly_type, anomaly_start_time):
             flow[anomaly_idx:] -= 40 + 20 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 5))
             pressure[anomaly_idx:] += 10 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 8))
             temperature[anomaly_idx:] += 5 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 10))
-        elif anomaly_type == "Pump Failure (Pressure/Flow Drop)":
+        elif anomaly_type == "Pump Failure":
             pressure[anomaly_idx:] -= 30 + 20 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 3))
             flow[anomaly_idx:] -= 50 + 30 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 3))
             temperature[anomaly_idx:] += 8 * (1 - np.exp(-(t[anomaly_idx:] - t[anomaly_idx]) / 5))
@@ -259,10 +230,8 @@ def main():
         st.session_state.anomaly_type,
         st.session_state.anomaly_start_time
     )
-    # Determine if we are on mobile (small screen) to adjust plot size
-    # We'll use a smaller figure if screen width is small (via CSS we set, but we can also use responsive sizing)
-    # For simplicity, we set a moderate figsize that works on both.
-    fig, axes = plt.subplots(4, 1, figsize=(10, 8), sharex=True)  # Slightly smaller for mobile
+    
+    fig, axes = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
     
     axes[0].plot(t, pressure, color='blue', linewidth=2, label='Pressure')
     axes[0].axhline(y=pressure_setpoint, color='blue', linestyle='--', alpha=0.5, label='Setpoint')
@@ -298,7 +267,7 @@ def main():
     plt.tight_layout()
     st.pyplot(fig)
     
-    # -------------------- MONITORING & METRICS --------------------
+    # Monitoring
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         st.subheader("🔍 Real-time Monitoring")
@@ -341,7 +310,6 @@ def main():
         else:
             st.success("✅ Normal")
     
-    # -------------------- EXPANDABLE SECTIONS --------------------
     with st.expander("📋 Detection Log"):
         if st.session_state.detection_log:
             for log in st.session_state.detection_log[-15:]:
