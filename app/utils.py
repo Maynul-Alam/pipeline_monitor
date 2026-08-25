@@ -16,14 +16,29 @@ import tensorflow as tf
 import joblib
 from src.data_preprocessing import clean_data, scale_data, create_sequences
 
+# Custom initializer to handle extra arguments in deserialization
+from keras.initializers import GlorotUniform
+
+class CustomGlorotUniform(GlorotUniform):
+    """Custom initializer that ignores unexpected 'input_axes' and 'output_axes' arguments."""
+    def __init__(self, seed=None, input_axes=None, output_axes=None, **kwargs):
+        super().__init__(seed=seed, **kwargs)
+
 
 def load_model_and_scaler(model_path, scaler_path):
     """
     Load the trained Keras model (without compiling) and fitted scaler.
-    Then recompile to avoid deserialization issues with metrics.
+    Uses custom_objects to handle version differences in initializers.
     """
-    # Load without compiling to bypass the metric deserialization error
-    model = tf.keras.models.load_model(model_path, compile=False)
+    # Register custom objects
+    custom_objects = {'GlorotUniform': CustomGlorotUniform}
+    
+    # Load without compiling to bypass metric deserialization
+    model = tf.keras.models.load_model(
+        model_path,
+        custom_objects=custom_objects,
+        compile=False
+    )
     # Recompile with the same loss as during training
     model.compile(optimizer='adam', loss='mse')
     scaler = joblib.load(scaler_path)
