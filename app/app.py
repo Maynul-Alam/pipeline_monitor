@@ -56,7 +56,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- SESSION STATE --------------------
+# -------------------- SESSION STATE INIT --------------------
 if 'sim_running' not in st.session_state:
     st.session_state.sim_running = False
 if 'sim_time' not in st.session_state:
@@ -69,8 +69,12 @@ if 'current_idx' not in st.session_state:
     st.session_state.current_idx = 0
 if 'leak_started' not in st.session_state:
     st.session_state.leak_started = False
+if 'leak_start_time' not in st.session_state:
+    st.session_state.leak_start_time = 5
+if 'leak_duration' not in st.session_state:
+    st.session_state.leak_duration = 60
 
-# -------------------- SIDEBAR CONTROLS (ALL FEATURES) --------------------
+# -------------------- SIDEBAR CONTROLS --------------------
 st.sidebar.header("⚙️ Pipeline Settings")
 
 with st.sidebar:
@@ -93,13 +97,17 @@ with st.sidebar:
     leak_start_time = st.slider("Leak starts after (s)", 1, 30, 5, 1)
     leak_duration = st.slider("Leak duration (s)", 5, 100, 60, 5)
 
+    # Store leak params in session state for use in detection loop
+    st.session_state.leak_start_time = leak_start_time
+    st.session_state.leak_duration = leak_duration
+
     st.markdown("---")
     if st.button("▶️ Start Simulation", type="primary"):
         st.session_state.sim_running = True
         st.session_state.sim_time = 0.0
         st.session_state.detection_log = []
         st.session_state.leak_started = False
-        # Generate fresh data
+        # Generate fresh data using current sidebar values
         t, p, f, temp, v = generate_simulation_data(
             pressure_setpoint, flow_setpoint, temperature_setpoint, volume_setpoint,
             valve_position, pump_speed, ambient_temp, noise_level,
@@ -228,10 +236,8 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
     curr_t = temp[idx]
     curr_v = v[idx]
 
-    # Detect only if we are past the leak start time (which we know from parameters)
-    # We'll use the leak_start_time from sidebar; we need to know it
-    # We stored it in session state? Let's retrieve from sidebar values
-    leak_start = st.session_state.get('leak_start_time', 5)
+    # Retrieve leak start from session state
+    leak_start = st.session_state.leak_start_time
     if current_time >= leak_start:
         st.session_state.leak_started = True
         reasons, detected, severity = detect_at_index(p, f, temp, idx,
@@ -322,7 +328,7 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
 
     # ---- Advance time ----
     st.session_state.sim_time += step_time
-    time.sleep(0.3)  # adjust for speed
+    time.sleep(0.3)
     st.rerun()
 
 else:
