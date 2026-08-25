@@ -1,6 +1,6 @@
 """
 app/app.py
-Pipeline Leak Simulator – Full features + auto‑leak with session_state.
+Pipeline Leak Simulator – Clean working version.
 """
 import streamlit as st
 import numpy as np
@@ -29,7 +29,6 @@ st.markdown("""
         .stSlider { padding: 0.2rem 0 !important; }
         .stColumns { gap: 0.5rem !important; }
     }
-    .css-1d391kg { padding-top: 0 !important; }
     div[data-testid="stAlert"] {
         padding: 1rem !important;
         font-size: 1.1rem !important;
@@ -57,40 +56,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- SESSION STATE INIT --------------------
-if 'sim_running' not in st.session_state:
-    st.session_state.sim_running = False
-if 'sim_time' not in st.session_state:
-    st.session_state.sim_time = 0.0
-if 'detection_log' not in st.session_state:
-    st.session_state.detection_log = []
-if 'sim_data' not in st.session_state:
-    st.session_state.sim_data = None
-if 'current_idx' not in st.session_state:
-    st.session_state.current_idx = 0
-if 'leak_started' not in st.session_state:
-    st.session_state.leak_started = False
+def init_session_state():
+    """Initialize all session state variables with defaults."""
+    defaults = {
+        'sim_running': False,
+        'sim_time': 0.0,
+        'detection_log': [],
+        'sim_data': None,
+        'current_idx': 0,
+        'leak_started': False,
+        'pressure_setpoint': 60,
+        'flow_setpoint': 110,
+        'temperature_setpoint': 25,
+        'volume_setpoint': 80,
+        'valve_position': 80,
+        'pump_speed': 85,
+        'ambient_temp': 20,
+        'noise_level': 0.8,
+        'leak_start_time': 5,
+        'leak_duration': 60
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-# Store parameters in session state for global access
-if 'pressure_setpoint' not in st.session_state:
-    st.session_state.pressure_setpoint = 60
-if 'flow_setpoint' not in st.session_state:
-    st.session_state.flow_setpoint = 110
-if 'temperature_setpoint' not in st.session_state:
-    st.session_state.temperature_setpoint = 25
-if 'volume_setpoint' not in st.session_state:
-    st.session_state.volume_setpoint = 80
-if 'valve_position' not in st.session_state:
-    st.session_state.valve_position = 80
-if 'pump_speed' not in st.session_state:
-    st.session_state.pump_speed = 85
-if 'ambient_temp' not in st.session_state:
-    st.session_state.ambient_temp = 20
-if 'noise_level' not in st.session_state:
-    st.session_state.noise_level = 0.8
-if 'leak_start_time' not in st.session_state:
-    st.session_state.leak_start_time = 5
-if 'leak_duration' not in st.session_state:
-    st.session_state.leak_duration = 60
+init_session_state()
 
 # -------------------- SIDEBAR CONTROLS --------------------
 st.sidebar.header("⚙️ Pipeline Settings")
@@ -117,11 +107,12 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("▶️ Start Simulation", type="primary"):
+        # Reset simulation state
         st.session_state.sim_running = True
         st.session_state.sim_time = 0.0
         st.session_state.detection_log = []
         st.session_state.leak_started = False
-        # Generate fresh data using current session state values
+        # Generate fresh data
         t, p, f, temp, v = generate_simulation_data(
             st.session_state.pressure_setpoint,
             st.session_state.flow_setpoint,
@@ -236,7 +227,16 @@ def detect_at_index(pressure, flow, temp, idx, baseline_p, baseline_f, temp_setp
 st.title("🛢️ Pipeline Leak Simulator")
 st.markdown("Adjust settings in the sidebar, then click **Start Simulation** – a leak will occur automatically after the set delay.")
 
-# If simulation is running, update in a loop
+# Display current settings
+col_info1, col_info2, col_info3 = st.columns(3)
+with col_info1:
+    st.info(f"⏱️ Leak starts at: {st.session_state.leak_start_time}s")
+with col_info2:
+    st.info(f"⏱️ Leak duration: {st.session_state.leak_duration}s")
+with col_info3:
+    st.info(f"📊 Noise level: {st.session_state.noise_level}")
+
+# If simulation is running, update
 if st.session_state.sim_running and st.session_state.sim_data is not None:
     t, p, f, temp, v = st.session_state.sim_data
     TOTAL_TIME = t[-1]
@@ -257,14 +257,15 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
     curr_t = temp[idx]
     curr_v = v[idx]
 
-    # Retrieve leak start from session state
     leak_start = st.session_state.leak_start_time
     if current_time >= leak_start:
         st.session_state.leak_started = True
-        reasons, detected, severity = detect_at_index(p, f, temp, idx,
-                                                      st.session_state.pressure_setpoint,
-                                                      st.session_state.flow_setpoint,
-                                                      st.session_state.temperature_setpoint)
+        reasons, detected, severity = detect_at_index(
+            p, f, temp, idx,
+            st.session_state.pressure_setpoint,
+            st.session_state.flow_setpoint,
+            st.session_state.temperature_setpoint
+        )
         if detected:
             log_entry = {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -354,14 +355,14 @@ if st.session_state.sim_running and st.session_state.sim_data is not None:
     st.rerun()
 
 else:
-    # Not running – show placeholder or previous log
+    # Not running
     if st.session_state.detection_log:
         st.subheader("📋 Detection Log")
         st.dataframe(pd.DataFrame(st.session_state.detection_log), use_container_width=True)
     else:
         st.info("Configure settings in the sidebar and click 'Start Simulation'.")
 
-# Export button (always visible)
+# Export button
 if st.session_state.detection_log:
     if st.button("📤 Export Log (CSV)"):
         df_exp = pd.DataFrame(st.session_state.detection_log)
